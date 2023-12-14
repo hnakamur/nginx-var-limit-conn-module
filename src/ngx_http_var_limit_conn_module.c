@@ -15,6 +15,14 @@
 #define NGX_HTTP_VAR_LIMIT_CONN_REJECTED_DRY_RUN  3
 
 
+#if (NGX_PTR_SIZE == 4)
+#define NGX_MAX_UINT_T_VALUE  4294967295UL
+
+#else
+#define NGX_MAX_UINT_T_VALUE  18446744073709551615ULL
+
+#endif
+
 typedef struct {
     u_char                        color;
     u_char                        len;
@@ -39,6 +47,7 @@ typedef struct {
     ngx_http_var_limit_conn_shctx_t  *sh;
     ngx_slab_pool_t                  *shpool;
     ngx_http_complex_value_t          key;
+    ngx_http_complex_value_t          conn_var;
 } ngx_http_var_limit_conn_ctx_t;
 
 
@@ -91,7 +100,7 @@ static ngx_conf_num_bounds_t  ngx_http_var_limit_conn_status_bounds = {
 static ngx_command_t  ngx_http_var_limit_conn_commands[] = {
 
     { ngx_string("var_limit_conn_zone"),
-      NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE2,
+      NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE2|NGX_CONF_TAKE3,
       ngx_http_var_limit_conn_zone,
       0,
       0,
@@ -181,8 +190,8 @@ ngx_http_var_limit_conn_handler(ngx_http_request_t *r)
 {
     size_t                              n;
     uint32_t                            hash;
-    ngx_str_t                           key;
-    ngx_uint_t                          i;
+    ngx_str_t                           key, conn_var;
+    ngx_uint_t                          i, conn;
     ngx_rbtree_node_t                  *node;
     ngx_pool_cleanup_t                 *cln;
     ngx_http_var_limit_conn_ctx_t      *ctx;
@@ -259,9 +268,26 @@ ngx_http_var_limit_conn_handler(ngx_http_request_t *r)
 
         } else {
 
+            conn = limits[i].conn;
+
+            if (ngx_http_complex_value(r, &ctx->conn_var, &conn_var) != NGX_OK) {
+                return NGX_HTTP_INTERNAL_SERVER_ERROR;
+            }
+
+            if (ngx_strcmp(conn_var.data, "unlimited") == 0) {
+                conn = NGX_MAX_UINT_T_VALUE;
+
+            } else if (conn_var.len != 0) {
+                conn = ngx_atoi(conn_var.data, conn_var.len);
+                if (conn <= 0) {
+                    ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                                "invalid conn_var value \"%V\"", &conn_var);
+                }
+            }
+
             lc = (ngx_http_var_limit_conn_node_t *) &node->color;
 
-            if ((ngx_uint_t) lc->conn >= limits[i].conn) {
+            if ((ngx_uint_t) lc->conn >= conn) {
 
                 ngx_shmtx_unlock(&ctx->shpool->mutex);
 
@@ -619,6 +645,19 @@ ngx_http_var_limit_conn_zone(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
             if (size < (ssize_t) (8 * ngx_pagesize)) {
                 ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
                                    "zone \"%V\" is too small", &value[i]);
+                return NGX_CONF_ERROR;
+            }
+
+            continue;
+        }
+
+        if (ngx_strncmp(value[i].data, "conn_var=", 9) == 0) {
+
+            ccv.value->data = value[i].data + 9;
+            ccv.value->len = value[i].len - 9;
+            ccv.complex_value = &ctx->conn_var;
+
+            if (ngx_http_compile_complex_value(&ccv) != NGX_OK) {
                 return NGX_CONF_ERROR;
             }
 
