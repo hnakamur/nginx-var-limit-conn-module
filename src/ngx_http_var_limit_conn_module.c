@@ -48,6 +48,7 @@ typedef struct {
     ngx_slab_pool_t                  *shpool;
     ngx_http_complex_value_t          key;
     ngx_http_complex_value_t          conn_var;
+    ngx_http_complex_value_t          dry_run_var;
 } ngx_http_var_limit_conn_ctx_t;
 
 
@@ -100,7 +101,7 @@ static ngx_conf_num_bounds_t  ngx_http_var_limit_conn_status_bounds = {
 static ngx_command_t  ngx_http_var_limit_conn_commands[] = {
 
     { ngx_string("var_limit_conn_zone"),
-      NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE2|NGX_CONF_TAKE3,
+      NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE2|NGX_CONF_TAKE3|NGX_CONF_TAKE4,
       ngx_http_var_limit_conn_zone,
       0,
       0,
@@ -190,7 +191,7 @@ ngx_http_var_limit_conn_handler(ngx_http_request_t *r)
 {
     size_t                              n;
     uint32_t                            hash;
-    ngx_str_t                           key, conn_var;
+    ngx_str_t                           key, conn_var, dry_run_var;
     ngx_uint_t                          i, conn;
     ngx_rbtree_node_t                  *node;
     ngx_pool_cleanup_t                 *cln;
@@ -199,6 +200,7 @@ ngx_http_var_limit_conn_handler(ngx_http_request_t *r)
     ngx_http_var_limit_conn_conf_t     *lccf;
     ngx_http_var_limit_conn_limit_t    *limits;
     ngx_http_var_limit_conn_cleanup_t  *lccln;
+    ngx_flag_t                          dry_run;
 
     if (r->main->limit_conn_status) {
         return NGX_DECLINED;
@@ -230,6 +232,26 @@ ngx_http_var_limit_conn_handler(ngx_http_request_t *r)
 
         hash = ngx_crc32_short(key.data, key.len);
 
+        dry_run = lccf->dry_run;
+        if (ngx_http_complex_value(r, &ctx->dry_run_var, &dry_run_var) != NGX_OK) {
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+        if (dry_run_var.len != 0) {
+            if (ngx_strcasecmp(dry_run_var.data, (u_char *) "on") == 0) {
+                dry_run = 1;
+
+            } else if (ngx_strcasecmp(dry_run_var.data, (u_char *) "off") == 0) {
+                dry_run = 0;
+
+            } else {
+                ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                              "the value of the \"%V\" key "
+                              "must be \"on\" or \"off\": \"%V\"",
+                              &ctx->dry_run_var.value, &dry_run_var);
+                continue;
+            }
+        }
+
         ngx_shmtx_lock(&ctx->shpool->mutex);
 
         node = ngx_http_var_limit_conn_lookup(&ctx->sh->rbtree, &key, hash);
@@ -246,7 +268,7 @@ ngx_http_var_limit_conn_handler(ngx_http_request_t *r)
                 ngx_shmtx_unlock(&ctx->shpool->mutex);
                 ngx_http_var_limit_conn_cleanup_all(r->pool);
 
-                if (lccf->dry_run) {
+                if (dry_run) {
                     r->main->limit_conn_status =
                                           NGX_HTTP_VAR_LIMIT_CONN_REJECTED_DRY_RUN;
                     return NGX_DECLINED;
@@ -293,12 +315,12 @@ ngx_http_var_limit_conn_handler(ngx_http_request_t *r)
 
                 ngx_log_error(lccf->log_level, r->connection->log, 0,
                               "limiting connections%s by zone \"%V\"",
-                              lccf->dry_run ? ", dry run," : "",
+                              dry_run ? ", dry run," : "",
                               &limits[i].shm_zone->shm.name);
 
                 ngx_http_var_limit_conn_cleanup_all(r->pool);
 
-                if (lccf->dry_run) {
+                if (dry_run) {
                     r->main->limit_conn_status =
                                           NGX_HTTP_VAR_LIMIT_CONN_REJECTED_DRY_RUN;
                     return NGX_DECLINED;
@@ -656,6 +678,19 @@ ngx_http_var_limit_conn_zone(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
             ccv.value->data = value[i].data + 9;
             ccv.value->len = value[i].len - 9;
             ccv.complex_value = &ctx->conn_var;
+
+            if (ngx_http_compile_complex_value(&ccv) != NGX_OK) {
+                return NGX_CONF_ERROR;
+            }
+
+            continue;
+        }
+
+        if (ngx_strncmp(value[i].data, "dry_run_var=", 12) == 0) {
+
+            ccv.value->data = value[i].data + 12;
+            ccv.value->len = value[i].len - 12;
+            ccv.complex_value = &ctx->dry_run_var;
 
             if (ngx_http_compile_complex_value(&ccv) != NGX_OK) {
                 return NGX_CONF_ERROR;
