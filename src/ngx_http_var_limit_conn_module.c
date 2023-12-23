@@ -59,11 +59,13 @@ typedef struct {
 
 
 typedef struct {
-    ngx_http_handler_pt           handler;
     ngx_array_t                   limits;
     ngx_uint_t                    log_level;
     ngx_uint_t                    status_code;
     ngx_flag_t                    dry_run;
+
+    ngx_http_handler_pt           handler;
+    ngx_shm_zone_t               *shm_zone;
 } ngx_http_var_limit_conn_conf_t;
 
 
@@ -141,9 +143,9 @@ static ngx_command_t  ngx_http_var_limit_conn_commands[] = {
       NULL },
 
     { ngx_string("var_limit_conn_top"),
-      NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_FLAG|NGX_CONF_TAKE1,
+      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
       ngx_http_var_limit_conn_top,
-      0,
+      NGX_HTTP_LOC_CONF_OFFSET,
       0,
       NULL },
 
@@ -220,10 +222,16 @@ ngx_http_var_limit_conn_handler(ngx_http_request_t *r)
     }
 
     lccf = ngx_http_get_module_loc_conf(r, ngx_http_var_limit_conn_module);
+    ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
+                  "ngx_http_var_limit_conn_handler lccf=%p",
+                  lccf);
     limits = lccf->limits.elts;
 
     for (i = 0; i < lccf->limits.nelts; i++) {
         ctx = limits[i].shm_zone->data;
+        ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
+                    "ngx_http_var_limit_conn_handler i=%d, shm_zone=%p, ctx=%p",
+                    i, limits[i].shm_zone, ctx);
 
         if (ngx_http_complex_value(r, &ctx->key, &key) != NGX_OK) {
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
@@ -270,6 +278,10 @@ ngx_http_var_limit_conn_handler(ngx_http_request_t *r)
 
         ngx_shmtx_lock(&ctx->shpool->mutex);
 
+        ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
+                    "ngx_http_var_limit_conn_handler i=%d, rbtree=%p, root=%p, sentinel=%p",
+                    i, &ctx->sh->rbtree, ctx->sh->rbtree.root, ctx->sh->rbtree.sentinel);
+
         node = ngx_http_var_limit_conn_lookup(&ctx->sh->rbtree, &key, hash);
 
         if (node == NULL) {
@@ -306,6 +318,9 @@ ngx_http_var_limit_conn_handler(ngx_http_request_t *r)
             ngx_memcpy(lc->data, key.data, key.len);
 
             ngx_rbtree_insert(&ctx->sh->rbtree, node);
+            ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
+                          "node=%p inserted for key=\"%V\"",
+                          node, &key);
 
         } else {
 
@@ -497,7 +512,7 @@ ngx_http_var_limit_conn_cleanup(void *data)
     ngx_log_debug2(NGX_LOG_DEBUG_HTTP, lccln->shm_zone->shm.log, 0,
                    "limit conn cleanup: %08Xi %d", node->key, lc->conn);
 
-    lc->conn--;
+    // lc->conn--;
 
     ngx_log_error(NGX_LOG_INFO, lccln->shm_zone->shm.log, 0,
                     "decremented lc->conn=%d",
@@ -575,6 +590,9 @@ ngx_http_var_limit_conn_init_zone(ngx_shm_zone_t *shm_zone, void *data)
 
     ngx_rbtree_init(&ctx->sh->rbtree, &ctx->sh->sentinel,
                     ngx_http_var_limit_conn_rbtree_insert_value);
+    ngx_log_error(NGX_LOG_INFO, shm_zone->shm.log, 0,
+                  "ngx_rbtree_init rbtree=%p, root=%p, sentinel=%p",
+                  &ctx->sh->rbtree, ctx->sh->rbtree.root, &ctx->sh->sentinel);
 
     len = sizeof(" in var_limit_conn_zone \"\"") + shm_zone->shm.name.len;
 
@@ -629,6 +647,9 @@ ngx_http_var_limit_conn_create_conf(ngx_conf_t *cf)
     conf->status_code = NGX_CONF_UNSET_UINT;
     conf->dry_run = NGX_CONF_UNSET;
 
+    conf->handler = NGX_CONF_UNSET_PTR;
+    conf->shm_zone = NGX_CONF_UNSET_PTR;
+
     return conf;
 }
 
@@ -649,6 +670,9 @@ ngx_http_var_limit_conn_merge_conf(ngx_conf_t *cf, void *parent, void *child)
 
     ngx_conf_merge_value(conf->dry_run, prev->dry_run, 0);
 
+    ngx_conf_merge_ptr_value(conf->handler, prev->handler, NULL);
+    ngx_conf_merge_ptr_value(conf->shm_zone, prev->shm_zone, NULL);
+
     return NGX_CONF_OK;
 }
 
@@ -663,6 +687,10 @@ ngx_http_var_limit_conn_zone(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     ngx_shm_zone_t                    *shm_zone;
     ngx_http_var_limit_conn_ctx_t     *ctx;
     ngx_http_compile_complex_value_t   ccv;
+
+    ngx_conf_log_error(NGX_LOG_INFO, cf, 0,
+                       "ngx_http_var_limit_conn_zone start args nelts=%d",
+                       cf->args->nelts);
 
     value = cf->args->elts;
 
@@ -760,6 +788,9 @@ ngx_http_var_limit_conn_zone(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
     shm_zone = ngx_shared_memory_add(cf, &name, size,
                                      &ngx_http_var_limit_conn_module);
+    ngx_conf_log_error(NGX_LOG_INFO, cf, 0,
+                  "ngx_http_var_limit_conn_zone zhm_zone=%p, name=%V, size=%d",
+                  shm_zone, &name, size);
     if (shm_zone == NULL) {
         return NGX_CONF_ERROR;
     }
@@ -795,6 +826,9 @@ ngx_http_var_limit_conn(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
     shm_zone = ngx_shared_memory_add(cf, &value[1], 0,
                                      &ngx_http_var_limit_conn_module);
+    ngx_conf_log_error(NGX_LOG_INFO, cf, 0,
+                       "ngx_http_var_limit_conn zhm_zone=%p, name=%V",
+                       shm_zone, &value[1]);
     if (shm_zone == NULL) {
         return NGX_CONF_ERROR;
     }
@@ -843,15 +877,38 @@ ngx_http_var_limit_conn(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 static ngx_int_t
 ngx_http_var_limit_conn_top_handler(ngx_http_request_t *r)
 {
-    size_t             size;
-    ngx_int_t          rc;
-    ngx_buf_t         *b;
-    ngx_chain_t        out;
+    ngx_http_var_limit_conn_conf_t   *lccf;
+    ngx_shm_zone_t                   *shm_zone;
+    ngx_http_var_limit_conn_ctx_t     *ctx;
+    ngx_rbtree_node_t                *node, *root, *sentinel;
+    ngx_http_var_limit_conn_node_t   *lcn;
+    ngx_str_t                         key;
+    size_t                            size;
+    ngx_int_t                         rc;
+    ngx_buf_t                        *b;
+    ngx_chain_t                      *out, **ll;
+    off_t                             content_len = 0;
 
     ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
                   "var_limit_conn_top_handler start");
 
+    lccf = ngx_http_get_module_loc_conf(r, ngx_http_var_limit_conn_module);
+    ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "lccf=%p", lccf);
+    if (lccf == NULL) {
+        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    }
+
+    shm_zone = lccf->shm_zone;
+    ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "shm_zone=%p", shm_zone);
+    if (shm_zone == NULL) {
+        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    }
+    ctx = shm_zone->data;
+    ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ctx=%p", ctx);
+
     rc = ngx_http_discard_request_body(r);
+    ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
+                  "ngx_http_discard_request_body rc=%d", rc);
 
     if (rc != NGX_OK) {
         return rc;
@@ -861,23 +918,56 @@ ngx_http_var_limit_conn_top_handler(ngx_http_request_t *r)
     ngx_str_set(&r->headers_out.content_type, "text/plain");
     r->headers_out.content_type_lowcase = NULL;
 
-    size = sizeof("Hello from var_limit_conn_top\n");
+    ngx_shmtx_lock(&ctx->shpool->mutex);
 
-    b = ngx_create_temp_buf(r->pool, size);
-    if (b == NULL) {
-        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    sentinel = ctx->sh->rbtree.sentinel;
+    root = ctx->sh->rbtree.root;
+
+    out = NULL;
+    ll = &out;
+
+    if (root == sentinel) {
+        r->headers_out.status = NGX_HTTP_NO_CONTENT;
+        r->header_only = 1;
+    } else {
+        for (node = ngx_rbtree_min(root, sentinel);
+            node;
+            node = ngx_rbtree_next(&ctx->sh->rbtree, node))
+        {
+            lcn = (ngx_http_var_limit_conn_node_t *) &node->color;
+            key.len = lcn->len;
+            key.data = lcn->data;
+            size = sizeof("key:") + key.len + sizeof("\tconn:65535\n");
+            b = ngx_create_temp_buf(r->pool, size);
+            if (b == NULL) {
+                ngx_shmtx_unlock(&ctx->shpool->mutex);
+                return NGX_HTTP_INTERNAL_SERVER_ERROR;
+            }
+
+            *ll = ngx_alloc_chain_link(r->pool);
+            if (*ll == NULL) {
+                ngx_shmtx_unlock(&ctx->shpool->mutex);
+                return NGX_HTTP_INTERNAL_SERVER_ERROR;
+            }
+
+            (*ll)->buf = b;
+            (*ll)->next = NULL;
+
+            b->last = ngx_sprintf(b->last, "key:%V\tconn:%d\n", &key, lcn->conn);
+            b->last_buf = 0;
+            b->last_in_chain = 1;
+            content_len += b->last - b->pos;
+            ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
+                  "key:%V\tconn:%d\n", &key, lcn->conn);
+
+            ll = &(*ll)->next;
+        }
+        b->last_buf = 1;
+        r->headers_out.status = NGX_HTTP_OK;
+        r->headers_out.content_length_n = content_len;
     }
 
-    out.buf = b;
-    out.next = NULL;
-
-    b->last = ngx_sprintf(b->last, "Hello from var_limit_conn_top\n");
-
-    r->headers_out.status = NGX_HTTP_OK;
-    r->headers_out.content_length_n = b->last - b->pos;
-
-    b->last_buf = (r == r->main) ? 1 : 0;
-    b->last_in_chain = 1;
+    ngx_shmtx_unlock(&ctx->shpool->mutex);
 
     rc = ngx_http_send_header(r);
 
@@ -885,7 +975,7 @@ ngx_http_var_limit_conn_top_handler(ngx_http_request_t *r)
         return rc;
     }
 
-    return ngx_http_output_filter(r, &out);
+    return ngx_http_output_filter(r, out);
 }
 
 static char *
@@ -897,27 +987,28 @@ ngx_http_var_limit_conn_top(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
     ngx_str_t  *value;
 
+    ngx_conf_log_error(NGX_LOG_INFO, cf, 0,
+                       "var_limit_conn_top start, args count=%d, lccf=%p",
+                       cf->args->nelts, lccf);
+
     value = cf->args->elts;
 
     shm_zone = ngx_shared_memory_add(cf, &value[1], 0,
                                      &ngx_http_var_limit_conn_module);
+    ngx_conf_log_error(NGX_LOG_INFO, cf, 0,
+                       "ngx_http_var_limit_conn_top zhm_zone=%p, "
+                       "lccf->shm_zone=%p",
+                       shm_zone, lccf->shm_zone);
     if (shm_zone == NULL) {
         return NGX_CONF_ERROR;
     }
 
+    lccf->shm_zone = shm_zone;
+
     clcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module);
-    ngx_log_error(NGX_LOG_INFO, cf->log, 0,
-                  "var_limit_conn_top clcf=%p", clcf);
+    ngx_conf_log_error(NGX_LOG_INFO, cf, 0,
+                       "var_limit_conn_top clcf=%p", clcf);
     clcf->handler = ngx_http_var_limit_conn_top_handler;
-
-#if 0
-    ngx_http_var_limit_conn_conf_t   *lccf;
-
-    lccf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_var_limit_conn_module);
-    ngx_log_error(NGX_LOG_INFO, cf->log, 0,
-                  "var_limit_conn_top lccf=%p", lccf);
-    lccf->handler = ngx_http_var_limit_conn_top_handler;
-#endif
 
     return NGX_CONF_OK;
 }
@@ -955,6 +1046,13 @@ ngx_http_var_limit_conn_init(ngx_conf_t *cf)
     }
 
     *h = ngx_http_var_limit_conn_handler;
+
+    // h = ngx_array_push(&cmcf->phases[NGX_HTTP_CONTENT_PHASE].handlers);
+    // if (h == NULL) {
+    //     return NGX_ERROR;
+    // }
+
+    // *h = ngx_http_var_limit_conn_top_handler;
 
     return NGX_OK;
 }
