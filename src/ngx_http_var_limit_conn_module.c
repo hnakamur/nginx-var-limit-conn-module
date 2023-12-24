@@ -15,14 +15,6 @@
 #define NGX_HTTP_VAR_LIMIT_CONN_REJECTED_DRY_RUN  3
 
 
-#if (NGX_PTR_SIZE == 4)
-#define NGX_MAX_UINT_T_VALUE  4294967295UL
-
-#else
-#define NGX_MAX_UINT_T_VALUE  18446744073709551615ULL
-
-#endif
-
 typedef struct {
     u_char                        color;
     u_char                        len;
@@ -90,7 +82,7 @@ static ngx_int_t ngx_http_var_limit_conn_actual_variable(
 static ngx_int_t ngx_http_var_limit_conn_config_variable(
     ngx_http_request_t *r, ngx_http_variable_value_t *v, uintptr_t data);
 static ngx_int_t ngx_http_var_limit_conn_u_short_variable(ngx_http_request_t *r,
-    ngx_http_variable_value_t *v, u_short value, ngx_flag_t has_value);
+    ngx_http_variable_value_t *v, ngx_uint_t value, ngx_flag_t has_value);
 static void *ngx_http_var_limit_conn_create_conf(ngx_conf_t *cf);
 static char *ngx_http_var_limit_conn_merge_conf(ngx_conf_t *cf, void *parent,
     void *child);
@@ -227,6 +219,9 @@ static ngx_str_t  ngx_http_var_limit_conn_status[] = {
     ngx_string("REJECTED_DRY_RUN")
 };
 
+#define ngx_str_eq_literal(s1, literal)                                      \
+    ((s1)->len = sizeof(literal) - 1                                         \
+     && ngx_strncmp((s1)->data, literal, sizeof(literal) - 1) == 0)
 
 static ngx_int_t
 ngx_http_var_limit_conn_handler(ngx_http_request_t *r)
@@ -264,8 +259,8 @@ ngx_http_var_limit_conn_handler(ngx_http_request_t *r)
                             &ctx->conn_var);
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
-        if (ngx_strcmp(conn_var.data, "unlimited") == 0) {
-            conn = NGX_MAX_UINT_T_VALUE;
+        if (ngx_str_eq_literal(&conn_var, "unlimited")) {
+            conn = 65535 + 1;
 
         } else if (conn_var.len != 0) {
             conn2 = ngx_atoi(conn_var.data, conn_var.len);
@@ -649,7 +644,7 @@ ngx_http_var_limit_conn_config_variable(ngx_http_request_t *r,
 
 static ngx_int_t
 ngx_http_var_limit_conn_u_short_variable(ngx_http_request_t *r,
-    ngx_http_variable_value_t *v, u_short value, ngx_flag_t has_value)
+    ngx_http_variable_value_t *v, ngx_uint_t value, ngx_flag_t has_value)
 {
     u_char     *p, buf[sizeof("65535")];
     ngx_str_t   src;
