@@ -232,11 +232,6 @@ ngx_http_var_limit_conn_handler(ngx_http_request_t *r)
 
     lccf = ngx_http_get_module_loc_conf(r, ngx_http_var_limit_conn_module);
 
-    ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
-                  "ngx_http_var_limit_conn_handler start, "
-                  "limit_conn_status=%d, top_shm_zone=%p",
-                  r->main->limit_conn_status, lccf->top_shm_zone);
-
     /* skip already handled or called for var_limit_conn_top directive. */
     if (r->main->limit_conn_status || lccf->top_shm_zone != NULL) {
         return NGX_DECLINED;
@@ -853,8 +848,6 @@ ngx_http_var_limit_conn_top_handler(ngx_http_request_t *r)
     ngx_chain_t                       out;
     ngx_array_t                       items;
 
-    ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
-                  "ngx_http_var_limit_conn_top_handler start");
     lccf = ngx_http_get_module_loc_conf(r, ngx_http_var_limit_conn_module);
     if (lccf == NULL) {
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
