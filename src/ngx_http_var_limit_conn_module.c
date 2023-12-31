@@ -159,7 +159,7 @@ static ngx_command_t  ngx_http_var_limit_conn_commands[] = {
       NULL },
 
     { ngx_string("var_limit_conn_top"),
-      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+      NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
       ngx_http_var_limit_conn_top,
       NGX_HTTP_LOC_CONF_OFFSET,
       0,
@@ -921,6 +921,7 @@ ngx_http_var_limit_conn(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     return NGX_CONF_OK;
 }
 
+
 static ngx_int_t
 ngx_http_var_limit_conn_top_handler(ngx_http_request_t *r)
 {
@@ -976,6 +977,7 @@ ngx_http_var_limit_conn_top_handler(ngx_http_request_t *r)
     return ngx_http_output_filter(r, &out);
 }
 
+
 static ngx_int_t
 ngx_http_var_limit_conn_top_build_items(ngx_http_request_t *r,
     ngx_rbtree_t *rbtree, ngx_array_t *items)
@@ -1022,6 +1024,7 @@ ngx_http_var_limit_conn_top_build_items(ngx_http_request_t *r,
 
     return NGX_OK;
 }
+
 
 static ngx_int_t
 ngx_http_var_limit_conn_top_build_response(ngx_http_request_t *r,
@@ -1070,6 +1073,7 @@ ngx_http_var_limit_conn_top_build_response(ngx_http_request_t *r,
     return NGX_OK;
 }
 
+
 static ngx_int_t
 ngx_http_var_limit_conn_top_item_cmp(const void *a, const void *b)
 {
@@ -1103,6 +1107,7 @@ ngx_http_var_limit_conn_top_item_cmp(const void *a, const void *b)
     return 0;
 }
 
+
 static char *
 ngx_http_var_limit_conn_top(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
@@ -1127,6 +1132,7 @@ ngx_http_var_limit_conn_top(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
     return NGX_CONF_OK;
 }
+
 
 static ngx_int_t
 ngx_http_var_limit_conn_add_variables(ngx_conf_t *cf)
