@@ -2,6 +2,7 @@
 /*
  * Copyright (C) Igor Sysoev
  * Copyright (C) Nginx, Inc.
+ * Copyright (C) Hiroaki Nakamura
  */
 
 
@@ -19,6 +20,7 @@ typedef struct {
     u_char                        color;
     u_char                        len;
     u_short                       conn;
+    ngx_uint_t                    limit_conn;
     u_char                        data[1];
 } ngx_http_var_limit_conn_node_t;
 
@@ -65,6 +67,7 @@ typedef struct {
 typedef struct {
     ngx_str_t                     key;
     u_short                       conn;
+    ngx_uint_t                    limit_conn;
 } ngx_http_var_limit_conn_top_item_t;
 
 
@@ -350,6 +353,7 @@ ngx_http_var_limit_conn_handler(ngx_http_request_t *r)
             node->key = hash;
             lc->len = (u_char) key.len;
             lc->conn = 1;
+            lc->limit_conn = conn;
             ngx_memcpy(lc->data, key.data, key.len);
 
             ngx_rbtree_insert(&ctx->sh->rbtree, node);
@@ -384,6 +388,7 @@ ngx_http_var_limit_conn_handler(ngx_http_request_t *r)
             }
 
             lc->conn++;
+            lc->limit_conn = conn;
         }
 
         ngx_log_debug2(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
@@ -450,7 +455,8 @@ ngx_http_var_limit_conn_rbtree_insert_value(ngx_rbtree_node_t *temp,
 
 
 static ngx_rbtree_node_t *
-ngx_http_var_limit_conn_lookup(ngx_rbtree_t *rbtree, ngx_str_t *key, uint32_t hash)
+ngx_http_var_limit_conn_lookup(ngx_rbtree_t *rbtree, ngx_str_t *key,
+    uint32_t hash)
 {
     ngx_int_t                        rc;
     ngx_rbtree_node_t               *node, *sentinel;
@@ -571,7 +577,8 @@ ngx_http_var_limit_conn_init_zone(ngx_shm_zone_t *shm_zone, void *data)
         return NGX_OK;
     }
 
-    ctx->sh = ngx_slab_alloc(ctx->shpool, sizeof(ngx_http_var_limit_conn_shctx_t));
+    ctx->sh = ngx_slab_alloc(ctx->shpool,
+                             sizeof(ngx_http_var_limit_conn_shctx_t));
     if (ctx->sh == NULL) {
         return NGX_ERROR;
     }
@@ -1003,6 +1010,7 @@ ngx_http_var_limit_conn_top_build_items(ngx_http_request_t *r,
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
         item->conn = lcn->conn;
+        item->limit_conn = lcn->limit_conn;
         key.len = lcn->len;
         key.data = lcn->data;
         item->key.len = key.len;
@@ -1033,7 +1041,7 @@ ngx_http_var_limit_conn_top_build_response(ngx_http_request_t *r,
     items_ptr = items->elts;
     for (i = 0; i < items->nelts; i++) {
         item = &items_ptr[i];
-        buf_size += sizeof("key:") + item->key.len + sizeof("\tconn:65535\n");
+        buf_size += sizeof("key:") + item->key.len + sizeof("\tconn:65535\tlimit:65536\n");
     }
 
     b = ngx_create_temp_buf(r->pool, buf_size);
@@ -1047,8 +1055,8 @@ ngx_http_var_limit_conn_top_build_response(ngx_http_request_t *r,
 
     for (i = 0; i < items->nelts; i++) {
         item = &items_ptr[i];
-        b->last = ngx_sprintf(b->last, "key:%V\tconn:%d\n", &item->key,
-            item->conn);
+        b->last = ngx_sprintf(b->last, "key:%V\tconn:%d\tlimit:%d\n",
+            &item->key, item->conn, item->limit_conn);
     }
 
     b->last_buf = 1;
