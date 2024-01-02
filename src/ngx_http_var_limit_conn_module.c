@@ -21,6 +21,7 @@ typedef struct {
     u_char                        len;
     u_short                       conn;
     ngx_uint_t                    limit_conn;
+    ngx_uint_t                    limited;
     u_char                        data[1];
 } ngx_http_var_limit_conn_node_t;
 
@@ -43,6 +44,7 @@ typedef struct {
     ngx_http_complex_value_t          key;
     ngx_http_complex_value_t          conn_var;
     ngx_http_complex_value_t          dry_run_var;
+    ngx_http_complex_value_t          status_var;
 } ngx_http_var_limit_conn_ctx_t;
 
 
@@ -71,12 +73,16 @@ typedef struct {
 } ngx_http_var_limit_conn_top_item_t;
 
 
+static ngx_int_t ngx_http_var_limit_conn_handler(ngx_http_request_t *r);
+static ngx_uint_t ngx_http_var_limit_conn_get_status(ngx_http_request_t *r,
+    ngx_http_var_limit_conn_ctx_t *ctx);
+static void ngx_http_var_limit_conn_rbtree_insert_value(ngx_rbtree_node_t *temp,
+    ngx_rbtree_node_t *node, ngx_rbtree_node_t *sentinel);
 static ngx_rbtree_node_t *ngx_http_var_limit_conn_lookup(ngx_rbtree_t *rbtree,
     ngx_str_t *key, uint32_t hash);
 static void ngx_http_var_limit_conn_cleanup(void *data);
 static ngx_inline void ngx_http_var_limit_conn_cleanup_all(ngx_pool_t *pool);
 
-static ngx_int_t ngx_http_var_limit_conn_top_handler(ngx_http_request_t *r);
 static ngx_int_t ngx_http_var_limit_conn_status_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
 static ngx_int_t ngx_http_var_limit_conn_actual_variable(
@@ -124,7 +130,8 @@ static ngx_conf_num_bounds_t  ngx_http_var_limit_conn_status_bounds = {
 static ngx_command_t  ngx_http_var_limit_conn_commands[] = {
 
     { ngx_string("var_limit_conn_zone"),
-      NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE2|NGX_CONF_TAKE3|NGX_CONF_TAKE4,
+      NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE2|NGX_CONF_TAKE3|NGX_CONF_TAKE4
+          |NGX_CONF_TAKE5,
       ngx_http_var_limit_conn_zone,
       0,
       0,
@@ -221,9 +228,11 @@ static ngx_str_t  ngx_http_var_limit_conn_status[] = {
     ngx_string("REJECTED_DRY_RUN")
 };
 
+
 #define ngx_str_eq_literal(s1, literal)                                      \
     ((s1)->len = sizeof(literal) - 1                                         \
      && ngx_strncmp((s1)->data, literal, sizeof(literal) - 1) == 0)
+
 
 static ngx_int_t
 ngx_http_var_limit_conn_handler(ngx_http_request_t *r)
@@ -345,7 +354,7 @@ ngx_http_var_limit_conn_handler(ngx_http_request_t *r)
 
                 r->main->limit_conn_status = NGX_HTTP_VAR_LIMIT_CONN_REJECTED;
 
-                return lccf->status_code;
+                return ngx_http_var_limit_conn_get_status(r, ctx);
             }
 
             lc = (ngx_http_var_limit_conn_node_t *) &node->color;
@@ -384,7 +393,7 @@ ngx_http_var_limit_conn_handler(ngx_http_request_t *r)
 
                 r->main->limit_conn_status = NGX_HTTP_VAR_LIMIT_CONN_REJECTED;
 
-                return lccf->status_code;
+                return ngx_http_var_limit_conn_get_status(r, ctx);
             }
 
             lc->conn++;
@@ -410,6 +419,28 @@ ngx_http_var_limit_conn_handler(ngx_http_request_t *r)
     }
 
     return NGX_DECLINED;
+}
+
+
+static ngx_uint_t
+ngx_http_var_limit_conn_get_status(ngx_http_request_t *r,
+    ngx_http_var_limit_conn_ctx_t *ctx)
+{
+    ngx_http_var_limit_conn_conf_t     *lccf;
+    ngx_str_t                           status_var;
+    ngx_int_t                           status;
+
+    if (ngx_http_complex_value(r, &ctx->status_var, &status_var) != NGX_OK) {
+        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    }
+    if (status_var.len != 0) {
+        status = ngx_atoi(status_var.data, status_var.len);
+        if (status >= 400 && status <= 599) {
+            return (ngx_uint_t) status;
+        }
+    }
+    lccf = ngx_http_get_module_loc_conf(r, ngx_http_var_limit_conn_module);
+    return lccf->status_code;
 }
 
 
@@ -819,6 +850,24 @@ ngx_http_var_limit_conn_zone(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
             ccv.cf = cf;
             ccv.value = &s;
             ccv.complex_value = &ctx->dry_run_var;
+
+            if (ngx_http_compile_complex_value(&ccv) != NGX_OK) {
+                return NGX_CONF_ERROR;
+            }
+
+            continue;
+        }
+
+        if (ngx_strncmp(value[i].data, "status_var=", 11) == 0) {
+
+            s.data = value[i].data + 11;
+            s.len = value[i].len - 11;
+
+            ngx_memzero(&ccv, sizeof(ngx_http_compile_complex_value_t));
+
+            ccv.cf = cf;
+            ccv.value = &s;
+            ccv.complex_value = &ctx->status_var;
 
             if (ngx_http_compile_complex_value(&ccv) != NGX_OK) {
                 return NGX_CONF_ERROR;
