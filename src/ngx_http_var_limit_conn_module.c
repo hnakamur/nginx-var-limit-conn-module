@@ -262,7 +262,8 @@ static ngx_str_t  ngx_http_var_limit_conn_status[] = {
 
 #define ngx_str_eq_literal(s1, literal)                                      \
     ((s1)->len = sizeof(literal) - 1                                         \
-     && ngx_strncmp((s1)->data, literal, sizeof(literal) - 1) == 0)
+     && ((s1)->len == 0                                                      \
+         || ngx_strncmp((s1)->data, literal, sizeof(literal) - 1) == 0))
 
 
 static ngx_int_t
