@@ -260,6 +260,12 @@ static ngx_str_t  ngx_http_var_limit_conn_status[] = {
 };
 
 
+static ngx_str_t  arg_key_name = ngx_string("arg_key");
+static ngx_str_t  arg_n_name = ngx_string("arg_n");
+static ngx_str_t  top_n_name = ngx_string("x-top-n");
+static ngx_str_t  num_all_keys_name = ngx_string("x-num-all-keys");
+
+
 #define ngx_str_eq_literal(s1, literal)                                      \
     ((s1)->len = sizeof(literal) - 1                                         \
      && ((s1)->len == 0                                                      \
@@ -293,7 +299,30 @@ ngx_http_var_limit_conn_handler(ngx_http_request_t *r)
     limits = lccf->limits.elts;
 
     for (i = 0; i < lccf->limits.nelts; i++) {
+
         ctx = limits[i].shm_zone->data;
+
+        if (ngx_http_complex_value(r, &ctx->key, &key) != NGX_OK) {
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+
+        ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
+                      "var_limit_conn i=%d, nelts=%d, "
+                      "ctx->key=\"%V\", key=\"%V\"",
+                      i, lccf->limits.nelts, &ctx->key, &key);
+
+        if (key.len == 0) {
+            continue;
+        }
+
+        if (key.len > 255) {
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                          "the value of the \"%V\" key "
+                          "is more than 255 bytes: \"%V\"",
+                          &ctx->key.value, &key);
+            continue;
+        }
+
         conn = limits[i].conn;
         if (ngx_http_complex_value(r, &ctx->conn_var, &conn_var) != NGX_OK) {
             ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
@@ -316,22 +345,6 @@ ngx_http_var_limit_conn_handler(ngx_http_request_t *r)
         }
         lccf->config_conn_plus_one = conn + 1;
         lccf->actual_conn_plus_one = 0;
-
-        if (ngx_http_complex_value(r, &ctx->key, &key) != NGX_OK) {
-            return NGX_HTTP_INTERNAL_SERVER_ERROR;
-        }
-
-        if (key.len == 0) {
-            continue;
-        }
-
-        if (key.len > 255) {
-            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
-                          "the value of the \"%V\" key "
-                          "is more than 255 bytes: \"%V\"",
-                          &ctx->key.value, &key);
-            continue;
-        }
 
         r->main->limit_conn_status = NGX_HTTP_VAR_LIMIT_CONN_PASSED;
 
@@ -782,7 +795,8 @@ ngx_http_var_limit_conn_merge_conf(ngx_conf_t *cf, void *parent, void *child)
 
     ngx_conf_merge_value(conf->dry_run, prev->dry_run, 0);
 
-    ngx_conf_merge_ptr_value(conf->status_shm_zone, prev->status_shm_zone, NULL);
+    ngx_conf_merge_ptr_value(conf->status_shm_zone, prev->status_shm_zone,
+                             NULL);
 
     return NGX_CONF_OK;
 }
@@ -1002,10 +1016,6 @@ ngx_http_var_limit_conn(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
     return NGX_CONF_OK;
 }
-
-
-static ngx_str_t  top_n_name = ngx_string("x-top-n");
-static ngx_str_t  num_all_keys_name = ngx_string("x-num-all-keys");
 
 
 static ngx_int_t
@@ -1333,8 +1343,6 @@ ngx_http_var_limit_conn_top(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     ngx_uint_t                        i;
     ngx_str_t                         default_n_str;
     ngx_int_t                         default_n = 0;
-    static ngx_str_t                  arg_n_name = ngx_string("arg_n");
-
     ngx_str_t  *value;
 
     value = cf->args->elts;
@@ -1602,7 +1610,6 @@ ngx_http_var_limit_conn_monitor_handler(ngx_http_request_t *r)
     return ngx_http_output_filter(r, &out);
 }
 
-
 static char *
 ngx_http_var_limit_conn_monitor(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf)
@@ -1610,7 +1617,6 @@ ngx_http_var_limit_conn_monitor(ngx_conf_t *cf, ngx_command_t *cmd,
     ngx_shm_zone_t                   *shm_zone;
     ngx_http_var_limit_conn_conf_t   *lccf = conf;
     ngx_http_core_loc_conf_t         *clcf;
-    static ngx_str_t                  arg_key_name = ngx_string("arg_key");
 
     ngx_str_t  *value;
 
