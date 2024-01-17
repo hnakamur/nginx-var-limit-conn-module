@@ -18,6 +18,11 @@
 
 #define ngx_array_item(a, i) ((void *)((char *)(a)->elts + (a)->size * (i)))
 
+#define ngx_str_eq_literal(s1, literal)                                      \
+    ((s1)->len = sizeof(literal) - 1                                         \
+     && ((s1)->len == 0                                                      \
+         || ngx_strncmp((s1)->data, literal, sizeof(literal) - 1) == 0))
+
 
 typedef struct {
     u_char                        color;
@@ -260,12 +265,6 @@ static ngx_str_t  ngx_http_var_limit_conn_status[] = {
 };
 
 
-#define ngx_str_eq_literal(s1, literal)                                      \
-    ((s1)->len = sizeof(literal) - 1                                         \
-     && ((s1)->len == 0                                                      \
-         || ngx_strncmp((s1)->data, literal, sizeof(literal) - 1) == 0))
-
-
 static ngx_int_t
 ngx_http_var_limit_conn_handler(ngx_http_request_t *r)
 {
@@ -344,12 +343,10 @@ ngx_http_var_limit_conn_handler(ngx_http_request_t *r)
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
         if (dry_run_var.len != 0) {
-            if (ngx_strcasecmp(dry_run_var.data, (u_char *) "on") == 0) {
+            if (ngx_str_eq_literal(&dry_run_var, "on")) {
                 dry_run = 1;
 
-            } else if (ngx_strcasecmp(dry_run_var.data, (u_char *) "off")
-                       == 0)
-            {
+            } else if (ngx_str_eq_literal(&dry_run_var, "off")) {
                 dry_run = 0;
 
             } else {
