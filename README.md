@@ -167,5 +167,5 @@ key:www1.example.com-B  conn:10 limit:10
 
 ## Embedded Variables
 
-* $var_limit_conn_status
+* $limit_conn_status (shared with [ngx_http_limit_conn_module](http://nginx.org/en/docs/http/ngx_http_limit_conn_module.html))
     * keeps the result of limiting the number of connections: `PASSED`, `REJECTED`, or `REJECTED_DRY_RUN`

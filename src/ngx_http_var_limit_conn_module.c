@@ -94,14 +94,6 @@ static ngx_rbtree_node_t *ngx_http_var_limit_conn_lookup(ngx_rbtree_t *rbtree,
 static void ngx_http_var_limit_conn_cleanup(void *data);
 static ngx_inline void ngx_http_var_limit_conn_cleanup_all(ngx_pool_t *pool);
 
-static ngx_int_t ngx_http_var_limit_conn_status_variable(ngx_http_request_t *r,
-    ngx_http_variable_value_t *v, uintptr_t data);
-static ngx_int_t ngx_http_var_limit_conn_actual_variable(
-    ngx_http_request_t *r, ngx_http_variable_value_t *v, uintptr_t data);
-static ngx_int_t ngx_http_var_limit_conn_config_variable(
-    ngx_http_request_t *r, ngx_http_variable_value_t *v, uintptr_t data);
-static ngx_int_t ngx_http_var_limit_conn_u_short_variable(ngx_http_request_t *r,
-    ngx_http_variable_value_t *v, ngx_uint_t value, ngx_flag_t has_value);
 static void *ngx_http_var_limit_conn_create_conf(ngx_conf_t *cf);
 static char *ngx_http_var_limit_conn_merge_conf(ngx_conf_t *cf, void *parent,
     void *child);
@@ -138,7 +130,6 @@ static ngx_int_t ngx_http_var_limit_conn_monitor_handler(ngx_http_request_t *r);
 static char *ngx_http_var_limit_conn_monitor(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
 
-static ngx_int_t ngx_http_var_limit_conn_add_variables(ngx_conf_t *cf);
 static ngx_int_t ngx_http_var_limit_conn_init(ngx_conf_t *cf);
 
 
@@ -213,7 +204,7 @@ static ngx_command_t  ngx_http_var_limit_conn_commands[] = {
 
 
 static ngx_http_module_t  ngx_http_var_limit_conn_module_ctx = {
-    ngx_http_var_limit_conn_add_variables, /* preconfiguration */
+    NULL,                                  /* preconfiguration */
     ngx_http_var_limit_conn_init,          /* postconfiguration */
 
     NULL,                                  /* create main configuration */
@@ -240,28 +231,6 @@ ngx_module_t  ngx_http_var_limit_conn_module = {
     NULL,                                  /* exit process */
     NULL,                                  /* exit master */
     NGX_MODULE_V1_PADDING
-};
-
-
-static ngx_http_variable_t  ngx_http_var_limit_conn_vars[] = {
-
-    { ngx_string("var_limit_conn_status"), NULL,
-      ngx_http_var_limit_conn_status_variable, 0, NGX_HTTP_VAR_NOCACHEABLE, 0 },
-
-    { ngx_string("var_limit_conn_actual"), NULL,
-      ngx_http_var_limit_conn_actual_variable, 0, NGX_HTTP_VAR_NOCACHEABLE, 0 },
-
-    { ngx_string("var_limit_conn_config"), NULL,
-      ngx_http_var_limit_conn_config_variable, 0, NGX_HTTP_VAR_NOCACHEABLE, 0 },
-
-      ngx_http_null_variable
-};
-
-
-static ngx_str_t  ngx_http_var_limit_conn_status[] = {
-    ngx_string("PASSED"),
-    ngx_string("REJECTED"),
-    ngx_string("REJECTED_DRY_RUN")
 };
 
 
@@ -657,81 +626,6 @@ ngx_http_var_limit_conn_init_zone(ngx_shm_zone_t *shm_zone, void *data)
 
     ngx_sprintf(ctx->shpool->log_ctx, " in var_limit_conn_zone \"%V\"%Z",
                 &shm_zone->shm.name);
-
-    return NGX_OK;
-}
-
-
-static ngx_int_t
-ngx_http_var_limit_conn_status_variable(ngx_http_request_t *r,
-    ngx_http_variable_value_t *v, uintptr_t data)
-{
-    ngx_str_t  *status;
-
-    if (r->main->limit_conn_status == 0) {
-        v->not_found = 1;
-        return NGX_OK;
-    }
-
-    v->valid = 1;
-    v->no_cacheable = 0;
-    v->not_found = 0;
-    status = &ngx_http_var_limit_conn_status[r->main->limit_conn_status - 1];
-    v->len = status->len;
-    v->data = status->data;
-
-    return NGX_OK;
-}
-
-
-static ngx_int_t
-ngx_http_var_limit_conn_actual_variable(ngx_http_request_t *r,
-    ngx_http_variable_value_t *v, uintptr_t data)
-{
-    ngx_http_var_limit_conn_conf_t  *lccf;
-
-    lccf = ngx_http_get_module_loc_conf(r, ngx_http_var_limit_conn_module);
-    return ngx_http_var_limit_conn_u_short_variable(r, v,
-        lccf->actual_conn_plus_one - 1, lccf->actual_conn_plus_one);
-}
-
-
-static ngx_int_t
-ngx_http_var_limit_conn_config_variable(ngx_http_request_t *r,
-    ngx_http_variable_value_t *v, uintptr_t data)
-{
-    ngx_http_var_limit_conn_conf_t  *lccf;
-
-    lccf = ngx_http_get_module_loc_conf(r, ngx_http_var_limit_conn_module);
-    return ngx_http_var_limit_conn_u_short_variable(r, v,
-        lccf->config_conn_plus_one - 1, lccf->config_conn_plus_one);
-}
-
-
-static ngx_int_t
-ngx_http_var_limit_conn_u_short_variable(ngx_http_request_t *r,
-    ngx_http_variable_value_t *v, ngx_uint_t value, ngx_flag_t has_value)
-{
-    u_char     *p, buf[sizeof("65535")];
-    ngx_str_t   src;
-
-    if (!has_value) {
-        v->not_found = 1;
-        return NGX_OK;
-    }
-
-    p = ngx_snprintf(buf, sizeof(buf), "%d", value);
-    src.data = buf;
-    src.len = p - buf;
-    v->len = src.len;
-    v->data = ngx_pstrdup(r->pool, &src);
-    if (v->data == NULL) {
-        return NGX_ERROR;
-    }
-
-    v->valid = 1;
-    v->no_cacheable = 0;
-    v->not_found = 0;
 
     return NGX_OK;
 }
@@ -1627,25 +1521,6 @@ ngx_http_var_limit_conn_monitor(ngx_conf_t *cf, ngx_command_t *cmd,
     clcf->handler = ngx_http_var_limit_conn_monitor_handler;
 
     return NGX_CONF_OK;
-}
-
-
-static ngx_int_t
-ngx_http_var_limit_conn_add_variables(ngx_conf_t *cf)
-{
-    ngx_http_variable_t  *var, *v;
-
-    for (v = ngx_http_var_limit_conn_vars; v->name.len; v++) {
-        var = ngx_http_add_variable(cf, &v->name, v->flags);
-        if (var == NULL) {
-            return NGX_ERROR;
-        }
-
-        var->get_handler = v->get_handler;
-        var->data = v->data;
-    }
-
-    return NGX_OK;
 }
 
 
