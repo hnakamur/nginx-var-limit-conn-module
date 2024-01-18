@@ -260,6 +260,23 @@ ngx_http_var_limit_conn_handler(ngx_http_request_t *r)
 
     for (i = 0; i < lccf->limits.nelts; i++) {
         ctx = limits[i].shm_zone->data;
+
+        if (ngx_http_complex_value(r, &ctx->key, &key) != NGX_OK) {
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+
+        if (key.len == 0) {
+            continue;
+        }
+
+        if (key.len > 255) {
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                          "the value of the \"%V\" key "
+                          "is more than 255 bytes: \"%V\"",
+                          &ctx->key.value, &key);
+            continue;
+        }
+
         conn = limits[i].conn;
         if (ngx_http_complex_value(r, &ctx->conn_var, &conn_var) != NGX_OK) {
             ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
@@ -279,22 +296,6 @@ ngx_http_var_limit_conn_handler(ngx_http_request_t *r)
                 return NGX_HTTP_INTERNAL_SERVER_ERROR;
             }
             conn = (ngx_uint_t) conn2;
-        }
-
-        if (ngx_http_complex_value(r, &ctx->key, &key) != NGX_OK) {
-            return NGX_HTTP_INTERNAL_SERVER_ERROR;
-        }
-
-        if (key.len == 0) {
-            continue;
-        }
-
-        if (key.len > 255) {
-            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
-                          "the value of the \"%V\" key "
-                          "is more than 255 bytes: \"%V\"",
-                          &ctx->key.value, &key);
-            continue;
         }
 
         r->main->limit_conn_status = NGX_HTTP_VAR_LIMIT_CONN_PASSED;
@@ -338,6 +339,12 @@ ngx_http_var_limit_conn_handler(ngx_http_request_t *r)
                 ngx_shmtx_unlock(&ctx->shpool->mutex);
                 ngx_http_var_limit_conn_cleanup_all(r->pool);
 
+                ngx_log_error(lccf->log_level, r->connection->log, 0,
+                              "limiting connections%s by zone \"%V\""
+                              " (cannot alloc tree node) conn=%d",
+                              dry_run ? ", dry run," : "",
+                              &limits[i].shm_zone->shm.name, conn);
+
                 if (dry_run) {
                     r->main->limit_conn_status =
                                        NGX_HTTP_VAR_LIMIT_CONN_REJECTED_DRY_RUN;
@@ -368,9 +375,10 @@ ngx_http_var_limit_conn_handler(ngx_http_request_t *r)
                 ngx_shmtx_unlock(&ctx->shpool->mutex);
 
                 ngx_log_error(lccf->log_level, r->connection->log, 0,
-                              "limiting connections%s by zone \"%V\"",
+                              "limiting connections%s by zone \"%V\""
+                              " conn=%d",
                               dry_run ? ", dry run," : "",
-                              &limits[i].shm_zone->shm.name);
+                              &limits[i].shm_zone->shm.name, conn);
 
                 ngx_http_var_limit_conn_cleanup_all(r->pool);
 
