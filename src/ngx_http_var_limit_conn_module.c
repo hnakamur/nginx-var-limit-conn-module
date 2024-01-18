@@ -19,9 +19,8 @@
 #define ngx_array_item(a, i) ((void *)((char *)(a)->elts + (a)->size * (i)))
 
 #define ngx_str_eq_literal(s1, literal)                                      \
-    ((s1)->len = sizeof(literal) - 1                                         \
-     && ((s1)->len == 0                                                      \
-         || ngx_strncmp((s1)->data, literal, sizeof(literal) - 1) == 0))
+    ((s1)->len == sizeof(literal) - 1                                        \
+     && ngx_strncmp((s1)->data, literal, sizeof(literal) - 1) == 0)
 
 
 typedef struct {
