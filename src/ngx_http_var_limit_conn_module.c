@@ -67,8 +67,6 @@ typedef struct {
     ngx_uint_t                    log_level;
     ngx_uint_t                    status_code;
     ngx_flag_t                    dry_run;
-    ngx_uint_t                    actual_conn_plus_one;
-    ngx_uint_t                    config_conn_plus_one;
 
     ngx_shm_zone_t               *status_shm_zone;
     ngx_uint_t                    default_n;
@@ -282,8 +280,6 @@ ngx_http_var_limit_conn_handler(ngx_http_request_t *r)
             }
             conn = (ngx_uint_t) conn2;
         }
-        lccf->config_conn_plus_one = conn + 1;
-        lccf->actual_conn_plus_one = 0;
 
         if (ngx_http_complex_value(r, &ctx->key, &key) != NGX_OK) {
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
@@ -342,8 +338,6 @@ ngx_http_var_limit_conn_handler(ngx_http_request_t *r)
                 ngx_shmtx_unlock(&ctx->shpool->mutex);
                 ngx_http_var_limit_conn_cleanup_all(r->pool);
 
-                lccf->actual_conn_plus_one = 0 + 1;
-
                 if (dry_run) {
                     r->main->limit_conn_status =
                                        NGX_HTTP_VAR_LIMIT_CONN_REJECTED_DRY_RUN;
@@ -365,12 +359,9 @@ ngx_http_var_limit_conn_handler(ngx_http_request_t *r)
 
             ngx_rbtree_insert(&ctx->sh->rbtree, node);
 
-            lccf->actual_conn_plus_one = 1 + 1;
-
         } else {
 
             lc = (ngx_http_var_limit_conn_node_t *) &node->color;
-            lccf->actual_conn_plus_one = lc->conn + 1 + 1;
 
             if ((ngx_uint_t) lc->conn >= conn) {
 
