@@ -658,8 +658,8 @@ ngx_http_var_limit_conn_create_conf(ngx_conf_t *cf)
 static char *
 ngx_http_var_limit_conn_merge_conf(ngx_conf_t *cf, void *parent, void *child)
 {
-    ngx_http_var_limit_conn_conf_t *prev = parent;
-    ngx_http_var_limit_conn_conf_t *conf = child;
+    ngx_http_var_limit_conn_conf_t  *prev = parent;
+    ngx_http_var_limit_conn_conf_t  *conf = child;
 
     if (conf->limits.elts == NULL) {
         conf->limits = prev->limits;
@@ -902,7 +902,7 @@ ngx_http_var_limit_conn_top_handler(ngx_http_request_t *r)
 {
     ngx_http_var_limit_conn_conf_t   *lccf;
     ngx_shm_zone_t                   *shm_zone;
-    ngx_http_var_limit_conn_ctx_t     *ctx;
+    ngx_http_var_limit_conn_ctx_t    *ctx;
     ngx_int_t                         rc;
     ngx_chain_t                       out;
     ngx_array_t                       items;
@@ -1110,9 +1110,9 @@ static ngx_uint_t
 ngx_http_var_limit_conn_binary_search(ngx_array_t *items,
     const ngx_http_var_limit_conn_status_item_t *item)
 {
-    ngx_uint_t                                   min_index, one_past_max_index,
-                                                 index;
-    ngx_int_t                                    res;
+    ngx_uint_t                                    min_index, one_past_max_index,
+                                                  index;
+    ngx_int_t                                     res;
     const ngx_http_var_limit_conn_status_item_t  *item2;
 
     min_index = 0;
@@ -1138,10 +1138,10 @@ static ngx_int_t
 ngx_http_var_limit_conn_status_build_response_body(ngx_http_request_t *r,
     ngx_array_t *items, ngx_chain_t *out)
 {
-    ngx_uint_t                           i;
+    ngx_uint_t                              i;
     ngx_http_var_limit_conn_status_item_t  *item, *items_ptr;
-    size_t                               buf_size = 0;
-    ngx_buf_t                           *b;
+    size_t                                  buf_size = 0;
+    ngx_buf_t                              *b;
 
     if (items->nelts == 0) {
         r->header_only = 1;
@@ -1164,7 +1164,7 @@ ngx_http_var_limit_conn_status_build_response_body(ngx_http_request_t *r,
     for (i = 0; i < items->nelts; i++) {
         item = &items_ptr[i];
         b->last = ngx_sprintf(b->last, "key:%V\tconn:%d\tlimit:%d\n",
-            &item->key, item->conn, item->limit_conn);
+                              &item->key, item->conn, item->limit_conn);
     }
 
     b->last_buf = 1;
@@ -1183,8 +1183,8 @@ static ngx_int_t
 ngx_http_var_limit_conn_top_item_cmp(const void *a, const void *b)
 {
     const ngx_http_var_limit_conn_status_item_t  *item_a, *item_b;
-    size_t                                     n;
-    ngx_int_t                                  rc;
+    size_t                                        n;
+    ngx_int_t                                     rc;
 
     item_a = a;
     item_b = b;
@@ -1398,7 +1398,7 @@ ngx_http_var_limit_conn_do_lookup(ngx_rbtree_t *rbtree, ngx_str_t *key)
 {
     uint32_t                         hash;
     ngx_rbtree_node_t               *node, *sentinel;
-    ngx_http_var_limit_conn_node_t   *lr;
+    ngx_http_var_limit_conn_node_t  *lr;
     ngx_int_t                        rc;
 
     hash = ngx_crc32_short(key->data, key->len);
@@ -1440,7 +1440,7 @@ ngx_http_var_limit_conn_monitor_handler(ngx_http_request_t *r)
 {
     ngx_http_var_limit_conn_conf_t  *lccf;
     ngx_shm_zone_t                  *shm_zone;
-    ngx_http_var_limit_conn_ctx_t    *ctx;
+    ngx_http_var_limit_conn_ctx_t   *ctx;
     ngx_int_t                        rc;
     ngx_chain_t                      out;
     ngx_array_t                      items;
